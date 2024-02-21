@@ -27,14 +27,14 @@ should work. The final project will include the proxy library and a CLI used to 
 
 ### Library API
 
-The `proxy` package will provide a struct representing the configuration and state needed to run the proxy.
+The `tcpproxy` package will provide a struct representing the configuration and state needed to run the proxy.
 
 It will look something like the following:
 
 ```golang
 
 type Proxy struct {
-  config  *proxy.Config
+  config  *tcpproxy.Config
 
   listener      net.Listener
   wg            *sync.WaitGroup
@@ -43,7 +43,7 @@ type Proxy struct {
 }
 ```
 
-A new instance of the proxy, instantiated with `proxy.New(...)`, will have the following functions available:
+A new instance of the proxy, instantiated with `tcpproxy.New(...)`, will have the following functions available:
 
 * `Listen()` to start the proxy and listen for connections on the provided listener.
 
@@ -54,39 +54,27 @@ A sample of instantiating a proxy from a CLI package and listening will look lik
 ```golang
 package main
 
-import "proxy"
+import "tcpproxy"
 
 func main() {
   // argument parsing
 
   logger := slog.New(...)
-  config := proxy.NewConfiguration(logger, ...)
-  p := proxy.New(config)
+  config := tcpproxy.NewConfiguration(logger, ...)
+  proxy := tcpproxy.New(config)
 
-  err := p.Listen()
+  // signal handling
+
+  err := proxy.Listen()
   if err != nil {
     // log error
     os.Exit(1)
   }
 
-  // signal handling
 }
 ```
 
-See the [configuration](####-Configuration) structure for details on what will be passed to `proxy.New(...)`.
-
-### Security Considerations
-
-In order to ensure unauthorized clients cannot proxy to upstreams, the proxy will utilize mTLS for authn. The server and client certificates will
-be generated with RSA 2048bit encryption, and checked into the repo for this example. Client certificates will be generated with the `subjectAltName`
-configured with a value representing the users email address, such as `subjectAltName = email:bob@burgers.com`.
-
-The server will prefer TLS 1.3 and the default ciphersuite selection provided by the `crypto/tls` Go package.
-
-Authorization will be handled in the configuration of the proxy, denoting what upstreams clients have access to. The `subjectAltName` will be used
-to identify clients.
-
-The CA used to generate the certificates will be used by the client and server (proxy) to validate that both are trusted.
+See the [configuration](####-Configuration) structure for details on what will be passed to `tcpproxy.New(...)`.
 
 #### Configuration
 
@@ -97,39 +85,52 @@ The object will look as follows:
 ```golang
 // Top level configuration object
 type Configuration struct {
-  listenerConfig  *ListenerConfig
-  upstreamsConfig []*UpstreamConfig
-  rateLimitConfig *RateLimitConfig
+  ListenerConfig  *ListenerConfig
+  UpstreamConfig  *UpstreamConfig
+  RateLimitConfig *RateLimitConfig
 
   // When to give up a proxied connection and close it.
-  timeout        time.Duration
-  logger         *slog.Logger
+  Timeout        time.Duration
+  Logger         *slog.Logger
 }
 
 // How the proxy listens for connections on the machine it is running from
 type ListenerConfig struct {
-  listenAddr string // eg :5000
+  ListenerAddr string // eg :5000
 
   // TLS configuraition for the listener to use.
-  ca         string
-  certificate string
-  privateKey string
+  Ca         string
+  Certificate string
+  PrivateKey string
 }
 
 // Individual configuration for an upstream "group"
 type UpstreamConfig struct {
-  name    string
-  targets []string
+  Name    string
+  Targets []string
 
-  authorizedClients []string // maps to subjectAltName email value
+  AuthorizedGroups []string // maps to group value extracted from `cn`
 }
 
 // How many connections, per client, over a given time window.
 type RateLimitConfig struct {
-  connectionCount int
-  window          time.Duration
+  ConnectionCount int
+  Window          time.Duration
 }
 ```
+
+### Security Considerations
+
+In order to ensure unauthorized clients cannot proxy to upstreams, the proxy will utilize mTLS for authn. The server and client certificates will
+be generated with RSA 2048bit encryption, and checked into the repo for this example. Client certificates will be generated with the `cn`
+configured with a value representing the user and a group, such as `cn = jbranham@admin`.
+
+The server will require TLS 1.3 and the default ciphersuite selection provided by the `crypto/tls` Go package as the minimum version.
+
+Authorization will be handled in the configuration of the proxy, denoting what upstreams clients have access to. The `cn` will be used
+to identify clients.
+
+The CA used to generate the certificates will be used by the client and server (proxy) to validate that both are trusted.
 
 ### Concurrency
 
