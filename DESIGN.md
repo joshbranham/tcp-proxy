@@ -23,30 +23,113 @@ have open at a given time to the upstreams.
 ### Scope
 
 The proxy will operate at TCP Layer 4, meaning any protocol that operates on TCP and supports certificate based authentication
-should work.
+should work. The final project will include the proxy library and a CLI used to run the proxy.
 
 ### Library API
 
-For the library component, the following configuration options will be exposed. These will be set when constructing a new `Proxy` struct.
+The `proxy` package will provide a struct representing the configuration and state needed to run the proxy.
 
-* Listener configuration: a port on which to listen and accept connections, and a certificate and private key for TLS.
+It will look something like the following:
 
-* Upstream configuration: a struct defining upstreams, including their name and address:port.
+```golang
 
-* Authorization configuration: what client(s), identified by their mTLS certificate, can connect to what upstreams.
+type Proxy struct {
+  config  *proxy.Config
 
-* Rate limit configuration: for a given client, identified by it's mTLS certificate, how many concurrent connections can it have.
+  listener      net.Listener
+  wg            *sync.WaitGroup
+  shutdownChn   chan struct{}
+  connectionChn chan net.Conn
+}
+```
 
-* Global timeout: a timeout to apply to all connections to ensure they are not left open and hung.
+A new instance of the proxy, instantiated with `proxy.New(...)`, will have the following functions available:
 
-Additionally, the library will utilize a logger to log common events like new connections.
+* `Listen()` to start the proxy and listen for connections on the provided listener.
+
+* `Close()` to shut the proxy down gracefully, signalled when the system sends a `SIGINT` or `SIGTERM`.
+
+A sample of instantiating a proxy from a CLI package and listening will look like the following:
+
+```golang
+package main
+
+import "proxy"
+
+func main() {
+  // argument parsing
+
+  logger := slog.New(...)
+  config := proxy.NewConfiguration(logger, ...)
+  p := proxy.New(config)
+
+  err := p.Listen()
+  if err != nil {
+    // log error
+    os.Exit(1)
+  }
+
+  // signal handling
+}
+```
+
+See the [configuration](####-Configuration) structure for details on what will be passed to `proxy.New(...)`.
 
 ### Security Considerations
 
-In order to ensure unauthroized clients cannot proxy to upstreams, the proxy will utilize mTLS for authn/z. The server and client certificates will
-be generated with RSA 2048bit encryption, and checked into the repo for this example. The certificate `cn=` will be used to identify the user of the proxy.
+In order to ensure unauthorized clients cannot proxy to upstreams, the proxy will utilize mTLS for authn. The server and client certificates will
+be generated with RSA 2048bit encryption, and checked into the repo for this example. Client certificates will be generated with the `subjectAltName`
+configured with a value representing the users email address, such as `subjectAltName = email:bob@burgers.com`.
+
+The server will prefer TLS 1.3 and the default ciphersuite selection provided by the `crypto/tls` Go package.
+
+Authorization will be handled in the configuration of the proxy, denoting what upstreams clients have access to. The `subjectAltName` will be used
+to identify clients.
 
 The CA used to generate the certificates will be used by the client and server (proxy) to validate that both are trusted.
+
+#### Configuration
+
+As described above, a new instance of the `Proxy` will take a configuration object.
+
+The object will look as follows:
+
+```golang
+// Top level configuration object
+type Configuration struct {
+  listenerConfig  *ListenerConfig
+  upstreamsConfig []*UpstreamConfig
+  rateLimitConfig *RateLimitConfig
+
+  // When to give up a proxied connection and close it.
+  timeout        time.Duration
+  logger         *slog.Logger
+}
+
+// How the proxy listens for connections on the machine it is running from
+type ListenerConfig struct {
+  listenAddr string // eg :5000
+
+  // TLS configuraition for the listener to use.
+  ca         string
+  certificate string
+  privateKey string
+}
+
+// Individual configuration for an upstream "group"
+type UpstreamConfig struct {
+  name    string
+  targets []string
+
+  authorizedClients []string // maps to subjectAltName email value
+}
+
+// How many connections, per client, over a given time window.
+type RateLimitConfig struct {
+  connectionCount int
+  window          time.Duration
+}
+```
 
 ### Concurrency
 
