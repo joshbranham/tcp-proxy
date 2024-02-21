@@ -34,7 +34,7 @@ It will look something like the following:
 ```golang
 
 type Proxy struct {
-  config  *tcpproxy.Config
+  Config  *tcpproxy.Config
 
   listener      net.Listener
   wg            *sync.WaitGroup
@@ -118,6 +118,10 @@ type RateLimitConfig struct {
   Window          time.Duration
 }
 ```
+
+##### Timeouts
+
+The `Timeout` option in the `Configuration` struct denotes how long a proxied connection has before it will be closed by the server.
 
 ### Security Considerations
 
