@@ -115,8 +115,7 @@ type UpstreamConfig struct {
 // Configuration for a token bucket rate limiting algorithm, applied to each client.
 type RateLimitConfig struct {
   Capacity int // Capacity of the per-client bucket
-  FillRate time.Duration // How often to add to the bucket, eg. '1 * time.Second'
-  FillCount int // How many tokens to add to the bucket at the given FillRate, eg. 1
+  FillRate time.Duration // How often to add 1 token to the bucket, eg. '1 * time.Second'
 }
 ```
 
