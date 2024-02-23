@@ -112,16 +112,18 @@ type UpstreamConfig struct {
   AuthorizedGroups []string // maps to group value extracted from `cn`
 }
 
-// How many connections, per client, over a given time window.
+// Configuration for a token bucket rate limiting algorithm, applied to each client.
 type RateLimitConfig struct {
-  ConnectionCount int
-  Window          time.Duration
+  Capactiy int // Capacity of the per-client bucket
+  FillRate time.Duration // How often to add to the bucket, eg. '1 * time.Second'
+  FillCount int // How many tokens to add to the bucket at the given FillRate, eg. 1
 }
 ```
 
 ##### Timeouts
 
-The `Timeout` option in the `Configuration` struct denotes how long a proxied connection has before it will be closed by the server.
+The `Timeout` option in the `Configuration` struct denotes how long a proxied connection can be idle, before it will be closed
+by the server.
 
 ### Security Considerations
 
