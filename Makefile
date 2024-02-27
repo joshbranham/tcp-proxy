@@ -9,4 +9,4 @@ lint:
 	golangci-lint run
 
 test:
-	gotestsum
+	go test ./...
