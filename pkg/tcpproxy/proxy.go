@@ -34,7 +34,7 @@ func New(conf *Config, balancer LoadBalancer, logger *slog.Logger) *Proxy {
 	}
 }
 
-// Listen starts a tcp listener on the configured ListenAddr, spawning goroutines to handle connections.
+// Listen starts a TCP listener on the configured ListenAddr, spawning goroutines to handle connections.
 func (p *Proxy) Listen() error {
 	defer p.wg.Done()
 
@@ -111,7 +111,7 @@ func (p *Proxy) handleConnection(clientConn net.Conn) {
 	defer clientConn.Close()
 	defer p.wg.Done()
 
-	// Fetch a target based on our load balancing strategy. Ensure to clea nup when we are done with the upstream.
+	// Fetch a target based on our load balancing strategy. Ensure to clean up when we are done with the upstream.
 	targetUpstream := p.Balancer.FetchTarget()
 	defer p.Balancer.ReleaseTarget(targetUpstream)
 
