@@ -53,6 +53,26 @@ func Test_ProxyForwardsRequests(t *testing.T) {
 	assert.NoError(t, echoSrv.close())
 }
 
+func Test_CannotCloseNonListeningProxy(t *testing.T) {
+	proxy := setupTestProxy(t, "localhost:99999")
+	err := proxy.Close()
+	assert.Error(t, err)
+}
+
+func Test_CannotServeIfNotListening(t *testing.T) {
+	proxy := setupTestProxy(t, "localhost:99999")
+	err := proxy.Serve()
+	assert.Error(t, err)
+}
+
+func Test_CannotListenIfAlreadyListening(t *testing.T) {
+	proxy := setupTestProxy(t, "localhost:99999")
+	err := proxy.Listen()
+	require.NoError(t, err)
+	err = proxy.Listen()
+	assert.Error(t, err)
+}
+
 func setupTestProxy(t *testing.T, target string) *Proxy {
 	targets := []string{target}
 	loadBalancer, err := NewLeastConnectionBalancer(targets)
