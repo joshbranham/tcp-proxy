@@ -10,23 +10,34 @@ import (
 	"time"
 )
 
-// This is a naive assumption that this port is free, but is fine for this use case.
-const testProxyListener = ":60999"
+// Configure our echoServer to listen on a random available port on localhost
+const echoServerAddr = "localhost:0"
 
 func Test_ProxyForwardsRequests(t *testing.T) {
-	// Start our echoServer which will receive proxied requests and echo back
-	shutdown := make(chan struct{})
-	echoServer := newEchoServer(testProxyListener, shutdown)
-	go echoServer.listen()
-	defer close(shutdown)
+	// Start our echoServer which will receive proxied requests and echo back.
+	echoSrv := newEchoServer(echoServerAddr)
+	err := echoSrv.listen()
+	require.NoError(t, err)
 
-	// Startup our proxy and begin listening
-	proxy := setupTestProxy(t)
-	err := proxy.Listen()
-	assert.NoError(t, err)
+	// Serve requests in a goroutine
+	go func() {
+		err := echoSrv.serve()
+		require.NoError(t, err)
+	}()
+
+	// Startup our proxy and begin listening, forwarding requests to our echoServer resolved
+	// address:port.
+	proxy := setupTestProxy(t, echoSrv.listener.Addr().String())
+	err = proxy.Listen()
+	require.NoError(t, err)
+	go func() {
+		err := proxy.Serve()
+		require.NoError(t, err)
+	}()
 
 	// Connect to our proxy instance
-	conn, err := net.Dial("tcp", proxy.listener.Addr().String())
+	conn, err := net.Dial("tcp", proxy.Address())
+	require.NoError(t, err)
 	reader := bufio.NewReader(conn)
 	assert.NoError(t, err)
 
@@ -39,20 +50,21 @@ func Test_ProxyForwardsRequests(t *testing.T) {
 	assert.Equal(t, "hello world\n", string(result))
 	assert.NoError(t, conn.Close())
 	assert.NoError(t, proxy.Close())
+	assert.NoError(t, echoSrv.close())
 }
 
-func setupTestProxy(t *testing.T) *Proxy {
-	targets := []string{testProxyListener}
+func setupTestProxy(t *testing.T, target string) *Proxy {
+	targets := []string{target}
 	loadBalancer, err := NewLeastConnectionBalancer(targets)
 	require.NoError(t, err)
 
 	config := &Config{
-		Balancer: loadBalancer,
+		LoadBalancer: loadBalancer,
 		ListenerConfig: &ListenerConfig{
 			ListenerAddr: "127.0.0.1:0",
 
 			// TODO: Not implemented yet
-			Ca:          "",
+			CA:          "",
 			Certificate: "",
 			PrivateKey:  "",
 		},
@@ -63,8 +75,10 @@ func setupTestProxy(t *testing.T) *Proxy {
 			// TODO: Not implemented yet
 			AuthorizedGroups: []string{""},
 		},
-		Timeout: 2 * time.Second,
-		Logger:  slog.Default(),
+		IdleTimeout: 2 * time.Second,
+		Logger:      slog.Default(),
 	}
-	return New(config)
+	proxy, err := New(config)
+	require.NoError(t, err)
+	return proxy
 }

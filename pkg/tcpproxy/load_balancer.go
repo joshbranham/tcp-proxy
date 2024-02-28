@@ -5,54 +5,43 @@ import (
 	"sync"
 )
 
-// LoadBalancer is an interface that allows for implementing other LoadBalancing algorithms,
-// such as RoundRobin.
-type LoadBalancer interface {
-	// FetchTarget returns an eligible upstream to receive a connection based on the given implementations selection criteria.
-	FetchTarget() string
-	// ReleaseTarget notifies the implementation that an upstream connection is complete.
-	ReleaseTarget(string)
-	// GetConnections fetches all upstreams and their active connection counts.
-	GetConnections() map[string]int
-}
-
-type LeastConnection struct {
+// LeastConnectionBalancer is a load balancer implementation configured to favor
+// upstreams with the least amount of connections when opening new connections.
+type LeastConnectionBalancer struct {
 	activeConnections map[string]int
-	mutex             sync.Mutex
+	mutex             sync.RWMutex
 	targets           []string
 }
 
-// NewLeastConnectionBalancer constructs an implementation of LoadBalancer, configured to favor
-// upstreams with the least connections when opening new connections.
-func NewLeastConnectionBalancer(targets []string) (*LeastConnection, error) {
+// NewLeastConnectionBalancer constructs a configured LeastConnectionBalancer.
+func NewLeastConnectionBalancer(targets []string) (*LeastConnectionBalancer, error) {
 	if len(targets) == 0 {
-		return nil, errors.New("cannot initialize a LeastConnection Balancer with zero targets")
+		return nil, errors.New("cannot initialize a LeastConnectionBalancer LoadBalancer with zero targets")
 	}
 	connectionsMap := make(map[string]int)
 	for _, target := range targets {
 		connectionsMap[target] = 0
 	}
 
-	return &LeastConnection{
+	return &LeastConnectionBalancer{
 		targets:           targets,
 		activeConnections: connectionsMap,
-		mutex:             sync.Mutex{},
 	}, nil
 }
 
 // FetchTarget provides a target upstream, which in this case, is the one with the least amount of connections.
 // In addition, this function acts as a "checkout" of an upstream, and the caller should clean up when done with the
 // upstream connection by calling ReleaseTarget().
-func (l *LeastConnection) FetchTarget() string {
-	l.mutex.Lock()
+func (l *LeastConnectionBalancer) FetchTarget() string {
+	l.mutex.RLock()
 	target := l.leastActiveUpstream()
 	l.activeConnections[target] += 1
-	l.mutex.Unlock()
+	l.mutex.RUnlock()
 
 	return target
 }
 
-func (l *LeastConnection) ReleaseTarget(target string) {
+func (l *LeastConnectionBalancer) ReleaseTarget(target string) {
 	l.mutex.Lock()
 
 	if l.activeConnections[target] > 0 {
@@ -62,16 +51,16 @@ func (l *LeastConnection) ReleaseTarget(target string) {
 	l.mutex.Unlock()
 }
 
-func (l *LeastConnection) GetConnections() map[string]int {
-	l.mutex.Lock()
+func (l *LeastConnectionBalancer) GetConnections() map[string]int {
+	l.mutex.RLock()
 	activeConnections := l.activeConnections
-	l.mutex.Unlock()
+	l.mutex.RUnlock()
 	return activeConnections
 }
 
 // leastActiveUpstream will iterate upstreams until it finds one with either 0 or the least amount
 // of connections. This is a naive implementation that could be improved if performance was a concern.
-func (l *LeastConnection) leastActiveUpstream() string {
+func (l *LeastConnectionBalancer) leastActiveUpstream() string {
 	var leastActiveUpstream string
 	for target, connectionCount := range l.activeConnections {
 		// If we find any target with zero connections, return early with that as an eligible target.
@@ -83,6 +72,7 @@ func (l *LeastConnection) leastActiveUpstream() string {
 		// Initialize our initial eligible upstream if unset
 		if leastActiveUpstream == "" {
 			leastActiveUpstream = target
+			continue
 		}
 
 		if l.activeConnections[leastActiveUpstream] > connectionCount {
