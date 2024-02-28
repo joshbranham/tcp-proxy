@@ -15,7 +15,10 @@ const testProxyListener = ":60999"
 
 func Test_ProxyForwardsRequests(t *testing.T) {
 	// Start our echoServer which will receive proxied requests and echo back
-	go echoServer(testProxyListener)
+	shutdown := make(chan struct{})
+	echoServer := newEchoServer(testProxyListener, shutdown)
+	go echoServer.listen()
+	defer close(shutdown)
 
 	// Startup our proxy and begin listening
 	proxy := setupTestProxy(t)
@@ -44,6 +47,7 @@ func setupTestProxy(t *testing.T) *Proxy {
 	require.NoError(t, err)
 
 	config := &Config{
+		Balancer: loadBalancer,
 		ListenerConfig: &ListenerConfig{
 			ListenerAddr: "127.0.0.1:0",
 
@@ -60,6 +64,7 @@ func setupTestProxy(t *testing.T) *Proxy {
 			AuthorizedGroups: []string{""},
 		},
 		Timeout: 2 * time.Second,
+		Logger:  slog.Default(),
 	}
-	return New(config, loadBalancer, slog.Default())
+	return New(config)
 }

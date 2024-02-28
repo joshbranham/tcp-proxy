@@ -8,9 +8,11 @@ import (
 // LoadBalancer is an interface that allows for implementing other LoadBalancing algorithms,
 // such as RoundRobin.
 type LoadBalancer interface {
+	// FetchTarget returns an eligible upstream to receive a connection based on the given implementations selection criteria.
 	FetchTarget() string
+	// ReleaseTarget notifies the implementation that an upstream connection is complete.
 	ReleaseTarget(string)
-	GetTargets() []string
+	// GetConnections fetches all upstreams and their active connection counts.
 	GetConnections() map[string]int
 }
 
@@ -60,12 +62,11 @@ func (l *LeastConnection) ReleaseTarget(target string) {
 	l.mutex.Unlock()
 }
 
-func (l *LeastConnection) GetTargets() []string {
-	return l.targets
-}
-
 func (l *LeastConnection) GetConnections() map[string]int {
-	return l.activeConnections
+	l.mutex.Lock()
+	activeConnections := l.activeConnections
+	l.mutex.Unlock()
+	return activeConnections
 }
 
 // leastActiveUpstream will iterate upstreams until it finds one with either 0 or the least amount
