@@ -45,6 +45,7 @@ type UpstreamConfig struct {
 	AuthorizedGroups []string
 }
 
+// Validate confirms a given Config has all required fields set.
 func (c *Config) Validate() error {
 	if c.ListenerConfig == nil {
 		return fmt.Errorf("config does not contain a ListenerConfig")

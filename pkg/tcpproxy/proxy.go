@@ -31,6 +31,7 @@ type Proxy struct {
 	shutdownC chan struct{}
 }
 
+// New constructs a Proxy for a given Config, validating the Config beforehand.
 func New(conf *Config) (*Proxy, error) {
 	err := conf.Validate()
 	if err != nil {
