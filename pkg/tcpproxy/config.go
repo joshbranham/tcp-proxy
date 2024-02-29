@@ -1,9 +1,8 @@
 package tcpproxy
 
 import (
-	"fmt"
+	"errors"
 	"log/slog"
-	"time"
 )
 
 // Config is the top-level configuration object used to configure a Proxy.
@@ -14,9 +13,6 @@ type Config struct {
 	ListenerConfig *ListenerConfig
 	// UpstreamConfig comprises where to route requests as well as which clients are authorized to do so.
 	UpstreamConfig *UpstreamConfig
-
-	// IdleTimeout is a duration when to give up on a proxied connection that is idle and close it.
-	IdleTimeout time.Duration
 
 	// Logger is a slog.Logger used for logging proxy activities to stdout.
 	Logger *slog.Logger
@@ -48,16 +44,16 @@ type UpstreamConfig struct {
 // Validate confirms a given Config has all required fields set.
 func (c *Config) Validate() error {
 	if c.ListenerConfig == nil {
-		return fmt.Errorf("config does not contain a ListenerConfig")
+		return errors.New("config does not contain a ListenerConfig")
 	}
 	if c.LoadBalancer == nil {
-		return fmt.Errorf("config does not contain a LoadBalancer")
+		return errors.New("config does not contain a LoadBalancer")
 	}
 	if c.UpstreamConfig == nil {
-		return fmt.Errorf("config does not contain a UpstreamConfig")
+		return errors.New("config does not contain a UpstreamConfig")
 	}
 	if c.Logger == nil {
-		return fmt.Errorf("config does not contain a Logger")
+		return errors.New("config does not contain a Logger")
 	}
 
 	return nil

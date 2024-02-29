@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"sync"
-	"time"
 )
 
 type echoServer struct {
@@ -44,27 +43,17 @@ func (e *echoServer) serve() error {
 				continue
 			}
 			wg.Add(1)
-			go e.handleConnection(conn)
-			wg.Done()
+			go func() {
+				e.handleConnection(conn)
+				wg.Done()
+			}()
 		}
 	}
 }
 
 func (e *echoServer) close() error {
 	close(e.shutdownC)
-	err := e.listener.Close()
-	if err != nil {
-		return err
-	}
-
-	done := make(chan struct{})
-	close(done)
-	select {
-	case <-done:
-		return nil
-	case <-time.After(ConnectionCloseTimeout):
-		return fmt.Errorf("timed out waiting for connections to finish")
-	}
+	return e.listener.Close()
 }
 
 func (e *echoServer) handleConnection(conn net.Conn) {

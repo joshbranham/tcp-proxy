@@ -2,7 +2,6 @@ package tcpproxy
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -12,10 +11,6 @@ import (
 	"time"
 )
 
-// ConnectionCloseTimeout is how long the proxy will wait for active connections to close before exiting when
-// it receives a signal.
-const ConnectionCloseTimeout = time.Second
-
 // DialTimeout is how long the proxy will wait when connecting to an upstream before giving up.
 const DialTimeout = 5 * time.Second
 
@@ -24,54 +19,55 @@ type Proxy struct {
 	loadBalancer   *LeastConnectionBalancer
 	listenerConfig *ListenerConfig
 	logger         *slog.Logger
-	idletimeout    time.Duration
 	upstreamConfig *UpstreamConfig
 
 	listener  net.Listener
 	shutdownC chan struct{}
+
+	serving bool
+	mutex   sync.Mutex
 }
 
-// New constructs a Proxy for a given Config, validating the Config beforehand.
+// New constructs a Proxy for a given Config. It will validate the configuration, and if valid, begin listening
+// on the configured ListenAddr.
 func New(conf *Config) (*Proxy, error) {
 	err := conf.Validate()
 	if err != nil {
 		return nil, err
 	}
 
-	return &Proxy{
+	proxy := &Proxy{
 		loadBalancer:   conf.LoadBalancer,
 		listenerConfig: conf.ListenerConfig,
 		logger:         conf.Logger,
-		idletimeout:    conf.IdleTimeout,
 		upstreamConfig: conf.UpstreamConfig,
 
 		shutdownC: make(chan struct{}),
-	}, nil
-}
+	}
 
-// Listen starts a TCP listener on the configured ListenAddr. Use Serve() to begin accepting connections.
-func (p *Proxy) Listen() error {
-	if p.listener != nil {
-		return fmt.Errorf("attempted to call Listen when the proxy is already listening")
+	if proxy.listener, err = net.Listen("tcp", proxy.listenerConfig.ListenerAddr); err != nil {
+		proxy.logger.Error("error listening", slog.String("error", err.Error()))
+		return nil, err
 	}
-	var err error
-	if p.listener, err = net.Listen("tcp", p.listenerConfig.ListenerAddr); err != nil {
-		p.logger.Error("error listening", slog.String("error", err.Error()))
-		return err
-	}
-	p.logger.Info(
+	proxy.logger.Info(
 		"proxy ready",
-		slog.String("listening", p.listener.Addr().String()),
-		slog.String("targets", strings.Join(p.upstreamConfig.Targets, ",")),
+		slog.String("listening", proxy.listener.Addr().String()),
+		slog.String("targets", strings.Join(proxy.upstreamConfig.Targets, ",")),
 	)
-	return err
+
+	return proxy, nil
 }
 
 // Serve blocks and starts receiving connections on our listener, spawning goroutines to handle individual connections.
 func (p *Proxy) Serve() error {
-	if p.listener == nil {
-		return fmt.Errorf("cannot serve requests before calling Listen()")
+	// Ensure we cannot call Serve more than once.
+	if p.serving {
+		return errors.New("cannot Serve as proxy is already serving")
 	}
+	p.mutex.Lock()
+	p.serving = true
+	p.mutex.Unlock()
+
 	wg := &sync.WaitGroup{}
 	for {
 		select {
@@ -84,7 +80,10 @@ func (p *Proxy) Serve() error {
 				continue
 			}
 			wg.Add(1)
-			go p.handleConnection(conn)
+			go func() {
+				p.handleConnection(conn)
+				wg.Done()
+			}()
 		}
 	}
 }
@@ -96,30 +95,28 @@ func (p *Proxy) Address() string {
 
 // Close will clean up connections and close the listener, if it is listening.
 func (p *Proxy) Close() error {
-	if p.listener == nil {
-		return fmt.Errorf("cannot close proxy, not currently listening")
+	// TODO: This prevents a panic if someone calls Close() twice on a Proxy instance. This is a hack,
+	// in that you could in theory close and re-listen at the call site, however the API exposed here prefers
+	// New() to return a new Proxy that is listening.
+	if !p.serving {
+		return errors.New("cannot close a proxy that is not serving")
 	}
+	p.mutex.Lock()
 	close(p.shutdownC)
+
 	err := p.listener.Close()
 	if err != nil {
 		return err
 	}
 
-	done := make(chan struct{})
-	close(done)
-	select {
-	case <-done:
-		return nil
-	case <-time.After(ConnectionCloseTimeout):
-		p.logger.Warn("timed out waiting for connections to finish")
-		return nil
-	}
+	p.serving = false
+	p.mutex.Unlock()
+
+	return nil
 }
 
 // TODO: Authorization
 func (p *Proxy) handleConnection(clientConn net.Conn) {
-	defer clientConn.Close()
-
 	// Fetch a target based on our load balancing strategy. Ensure to clean up when we are done with the upstream.
 	upstream := p.loadBalancer.FetchUpstream()
 	defer upstream.Release()
@@ -128,16 +125,6 @@ func (p *Proxy) handleConnection(clientConn net.Conn) {
 	if err != nil {
 		p.logger.Error("connecting to target", "error", err)
 		return
-	}
-
-	// Set the Read and Write Deadline for each connection to the configured IdleTimeout
-	err = clientConn.SetDeadline(time.Now().Add(p.idletimeout))
-	if err != nil {
-		p.logger.Error("unable to extend deadline for connection")
-	}
-	err = targetConn.SetDeadline(time.Now().Add(p.idletimeout))
-	if err != nil {
-		p.logger.Error("unable to extend deadline for connection")
 	}
 
 	defer func() {
@@ -161,17 +148,31 @@ func (p *Proxy) handleConnection(clientConn net.Conn) {
 	go func() {
 		defer wg.Done()
 		p.copyData(clientConn, targetConn)
+
+		// For added safety, close the target connection once data transfer is complete to ensure the other
+		// goroutine can't get stuck.
+		p.closeConnection(targetConn)
 	}()
 
 	wg.Wait()
+
+	// Close connections once EOF has been met and data transfer is complete
+	p.closeConnection(clientConn)
+	p.closeConnection(targetConn)
 }
 
 func (p *Proxy) copyData(dst net.Conn, src net.Conn) {
 	_, err := io.Copy(dst, src)
 	if err != nil {
 		if errors.Is(err, os.ErrDeadlineExceeded) {
-			p.logger.Error("idle timeout exceeded", "error", err)
+			p.logger.Error("deadline exceeded", "error", err)
 		}
 		p.logger.Error("copying data", "error", err)
+	}
+}
+
+func (p *Proxy) closeConnection(conn net.Conn) {
+	if err := conn.Close(); err != nil {
+		p.logger.Error("closing connection", "error", err)
 	}
 }

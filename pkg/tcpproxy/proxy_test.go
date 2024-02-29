@@ -2,12 +2,13 @@ package tcpproxy
 
 import (
 	"bufio"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"log/slog"
 	"net"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Configure our echoServer to listen on a random available port on localhost
@@ -28,7 +29,6 @@ func Test_ProxyForwardsRequests(t *testing.T) {
 	// Startup our proxy and begin listening, forwarding requests to our echoServer resolved
 	// address:port.
 	proxy := setupTestProxy(t, echoSrv.listener.Addr().String())
-	err = proxy.Listen()
 	require.NoError(t, err)
 	go func() {
 		err := proxy.Serve()
@@ -53,24 +53,25 @@ func Test_ProxyForwardsRequests(t *testing.T) {
 	assert.NoError(t, echoSrv.close())
 }
 
-func Test_CannotCloseNonListeningProxy(t *testing.T) {
-	proxy := setupTestProxy(t, "localhost:99999")
-	err := proxy.Close()
-	assert.Error(t, err)
+func Test_CannotCloseAlreadyClosed(t *testing.T) {
+	proxy := setupTestProxy(t, "localhost:0")
+	assert.Error(t, proxy.Close())
 }
 
-func Test_CannotServeIfNotListening(t *testing.T) {
+func Test_CannotServeIfAlreadyServing(t *testing.T) {
 	proxy := setupTestProxy(t, "localhost:99999")
+
+	go func() {
+		err := proxy.Serve()
+		require.NoError(t, err)
+	}()
+
+	// Give our proxy serving in a goroutine time to begin serving before trying to call Serve() again. We need
+	// the goroutine serving in order to test the double serve behavior erroring.
+	time.Sleep(5 * time.Millisecond)
 	err := proxy.Serve()
 	assert.Error(t, err)
-}
-
-func Test_CannotListenIfAlreadyListening(t *testing.T) {
-	proxy := setupTestProxy(t, "localhost:99999")
-	err := proxy.Listen()
-	require.NoError(t, err)
-	err = proxy.Listen()
-	assert.Error(t, err)
+	assert.NoError(t, proxy.Close())
 }
 
 func setupTestProxy(t *testing.T, target string) *Proxy {
@@ -95,8 +96,7 @@ func setupTestProxy(t *testing.T, target string) *Proxy {
 			// TODO: Not implemented yet
 			AuthorizedGroups: []string{""},
 		},
-		IdleTimeout: 2 * time.Second,
-		Logger:      slog.Default(),
+		Logger: slog.Default(),
 	}
 	proxy, err := New(config)
 	require.NoError(t, err)
