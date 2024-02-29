@@ -1,10 +1,12 @@
 package tcpproxy
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -124,6 +126,16 @@ func (p *Proxy) handleConnection(clientConn net.Conn) {
 		return
 	}
 
+	// Set the Read and Write Deadline for each connection to the configured IdleTimeout
+	err = clientConn.SetDeadline(time.Now().Add(p.idletimeout))
+	if err != nil {
+		p.logger.Error("unable to extend deadline for connection")
+	}
+	err = targetConn.SetDeadline(time.Now().Add(p.idletimeout))
+	if err != nil {
+		p.logger.Error("unable to extend deadline for connection")
+	}
+
 	defer func() {
 		if err = targetConn.Close(); err != nil {
 			p.logger.Error("closing connection", "error", err)
@@ -153,14 +165,9 @@ func (p *Proxy) handleConnection(clientConn net.Conn) {
 func (p *Proxy) copyData(dst net.Conn, src net.Conn) {
 	_, err := io.Copy(dst, src)
 	if err != nil {
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			p.logger.Error("idle timeout exceeded", "error", err)
+		}
 		p.logger.Error("copying data", "error", err)
-	}
-	err = src.SetDeadline(time.Now().Add(p.idletimeout))
-	if err != nil {
-		p.logger.Error("unable to extend deadline for connection")
-	}
-	err = dst.SetDeadline(time.Now().Add(p.idletimeout))
-	if err != nil {
-		p.logger.Error("unable to extend deadline for connection")
 	}
 }
