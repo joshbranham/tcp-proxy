@@ -1,9 +1,10 @@
 package tcpproxy
 
 import (
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func Test_LeastConnectionLoadBalancer(t *testing.T) {
@@ -11,19 +12,30 @@ func Test_LeastConnectionLoadBalancer(t *testing.T) {
 	require.NoError(t, err)
 
 	// Mark some targets as being connected, then cleanup
-	target1 := balancer.FetchTarget()
-	target2 := balancer.FetchTarget()
-	assert.NotEqual(t, target1, target2)
+	target1 := balancer.FetchUpstream()
+	target2 := balancer.FetchUpstream()
+	assert.NotEqual(t, target1.Address, target2.Address)
 
 	// Assert for each target, we have one connection at this time
-	for _, connections := range balancer.GetConnections() {
-		assert.Equal(t, 1, connections)
+	for _, upstream := range balancer.FetchUpstreams() {
+		assert.Equal(t, 1, upstream.Connections())
 	}
 
 	// Cleanup and assert zero connections
-	balancer.ReleaseTarget(target1)
-	balancer.ReleaseTarget(target2)
-	for _, connections := range balancer.GetConnections() {
-		assert.Equal(t, 0, connections)
+	target1.Release()
+	target2.Release()
+	for _, upstream := range balancer.FetchUpstreams() {
+		assert.Equal(t, 0, upstream.Connections())
 	}
+}
+
+func Test_UpstreamConnectionsCannotBeNegative(t *testing.T) {
+	balancer, err := NewLeastConnectionBalancer([]string{":5000"})
+	require.NoError(t, err)
+
+	// Release an upstream twice, ensure we can't have a negative counter
+	target := balancer.FetchUpstream()
+	target.Release()
+	target.Release()
+	assert.Equal(t, 0, target.Connections())
 }

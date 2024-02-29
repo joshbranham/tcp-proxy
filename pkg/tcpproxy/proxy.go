@@ -115,10 +115,10 @@ func (p *Proxy) handleConnection(clientConn net.Conn) {
 	defer clientConn.Close()
 
 	// Fetch a target based on our load balancing strategy. Ensure to clean up when we are done with the upstream.
-	targetUpstream := p.loadBalancer.FetchTarget()
-	defer p.loadBalancer.ReleaseTarget(targetUpstream)
+	upstream := p.loadBalancer.FetchUpstream()
+	defer upstream.Release()
 
-	targetConn, err := net.Dial("tcp", targetUpstream)
+	targetConn, err := net.Dial("tcp", upstream.Address)
 	if err != nil {
 		p.logger.Error("connecting to target", "error", err)
 		return

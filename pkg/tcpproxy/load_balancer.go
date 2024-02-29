@@ -8,76 +8,82 @@ import (
 // LeastConnectionBalancer is a load balancer implementation configured to favor
 // upstreams with the least amount of connections when opening new connections.
 type LeastConnectionBalancer struct {
-	activeConnections map[string]int
-	mutex             sync.RWMutex
-	targets           []string
+	upstreams []*Upstream
 }
 
 // NewLeastConnectionBalancer constructs a configured LeastConnectionBalancer.
 func NewLeastConnectionBalancer(targets []string) (*LeastConnectionBalancer, error) {
 	if len(targets) == 0 {
-		return nil, errors.New("cannot initialize a LeastConnectionBalancer LoadBalancer with zero targets")
+		return nil, errors.New("cannot initialize a LeastConnectionBalancer LoadBalancer with zero upstreams")
 	}
-	connectionsMap := make(map[string]int)
+	var upstreams []*Upstream
 	for _, target := range targets {
-		connectionsMap[target] = 0
+		upstreams = append(upstreams, &Upstream{Address: target})
 	}
 
-	return &LeastConnectionBalancer{
-		targets:           targets,
-		activeConnections: connectionsMap,
-	}, nil
+	return &LeastConnectionBalancer{upstreams: upstreams}, nil
 }
 
-// FetchTarget provides a target upstream, which in this case, is the one with the least amount of connections.
-// In addition, this function acts as a "checkout" of an upstream, and the caller should clean up when done with the
-// upstream connection by calling ReleaseTarget().
-func (l *LeastConnectionBalancer) FetchTarget() string {
-	l.mutex.RLock()
-	target := l.leastActiveUpstream()
-	l.activeConnections[target] += 1
-	l.mutex.RUnlock()
+// FetchUpstream provides a target Upstream with the least amount of connections.
+func (l *LeastConnectionBalancer) FetchUpstream() *Upstream {
+	upstream := l.leastActiveUpstream()
+	upstream.mutex.Lock()
+	upstream.connections += 1
+	upstream.mutex.Unlock()
 
-	return target
+	return l.leastActiveUpstream()
 }
 
-func (l *LeastConnectionBalancer) ReleaseTarget(target string) {
-	l.mutex.Lock()
+// FetchUpstreams returns all upstreams the LeastConnectionBalancer is configured with.
+func (l *LeastConnectionBalancer) FetchUpstreams() []*Upstream {
+	return l.upstreams
+}
 
-	if l.activeConnections[target] > 0 {
-		l.activeConnections[target] -= 1
+// Upstream is a wrapper around an upstream Address that connections can use. Callers should use upstream.Release()
+// when finished with a connection.
+type Upstream struct {
+	// Address is the address of the upstream, for example, 172.27.0.1:5000
+	Address string
+
+	connections int
+	mutex       sync.RWMutex
+}
+
+// Release will decrement the count of current connections, used when a proxied request is complete.
+func (u *Upstream) Release() {
+	u.mutex.Lock()
+
+	if u.connections > 0 {
+		u.connections -= 1
 	}
 
-	l.mutex.Unlock()
+	u.mutex.Unlock()
 }
 
-func (l *LeastConnectionBalancer) GetConnections() map[string]int {
-	l.mutex.RLock()
-	activeConnections := l.activeConnections
-	l.mutex.RUnlock()
-	return activeConnections
+// Connections will return the count of current connections.
+func (u *Upstream) Connections() int {
+	var connections int
+	u.mutex.RLock()
+	connections = u.connections
+	u.mutex.RUnlock()
+
+	return connections
 }
 
 // leastActiveUpstream will iterate upstreams until it finds one with either 0 or the least amount
 // of connections. This is a naive implementation that could be improved if performance was a concern.
-func (l *LeastConnectionBalancer) leastActiveUpstream() string {
-	var leastActiveUpstream string
-	for target, connectionCount := range l.activeConnections {
-		// If we find any target with zero connections, return early with that as an eligible target.
-		if connectionCount == 0 {
-			leastActiveUpstream = target
-			break
+func (l *LeastConnectionBalancer) leastActiveUpstream() *Upstream {
+	leastActiveUpstream := l.upstreams[0]
+	leastActiveConnections := -1
+	for _, upstream := range l.upstreams {
+		upstream.mutex.RLock()
+
+		if (upstream.connections < leastActiveConnections) || leastActiveConnections == -1 {
+			leastActiveConnections = upstream.connections
+			leastActiveUpstream = upstream
 		}
 
-		// Initialize our initial eligible upstream if unset
-		if leastActiveUpstream == "" {
-			leastActiveUpstream = target
-			continue
-		}
-
-		if l.activeConnections[leastActiveUpstream] > connectionCount {
-			leastActiveUpstream = target
-		}
+		upstream.mutex.RUnlock()
 	}
 
 	return leastActiveUpstream
