@@ -16,6 +16,9 @@ import (
 // it receives a signal.
 const ConnectionCloseTimeout = time.Second
 
+// DialTimeout is how long the proxy will wait when connecting to an upstream before giving up.
+const DialTimeout = 5 * time.Second
+
 // Proxy is an instance of the TCP proxy. Use New() with a Config to construct a proper Proxy.
 type Proxy struct {
 	loadBalancer   *LeastConnectionBalancer
@@ -120,7 +123,7 @@ func (p *Proxy) handleConnection(clientConn net.Conn) {
 	upstream := p.loadBalancer.FetchUpstream()
 	defer upstream.Release()
 
-	targetConn, err := net.Dial("tcp", upstream.Address)
+	targetConn, err := net.DialTimeout("tcp", upstream.Address, DialTimeout)
 	if err != nil {
 		p.logger.Error("connecting to target", "error", err)
 		return
