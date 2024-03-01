@@ -117,18 +117,13 @@ func (p *Proxy) handleConnection(clientConn net.Conn) {
 	upstream := p.loadBalancer.FetchUpstream()
 	defer upstream.Release()
 
+	p.logger.Info("forwarding connection", "source", clientConn.LocalAddr(), "target", upstream.Address)
 	targetConn, err := net.DialTimeout("tcp", upstream.Address, DialTimeout)
 	if err != nil {
 		p.logger.Error("connecting to target", "error", err)
 		_ = clientConn.Close()
 		return
 	}
-
-	defer func() {
-		if err = targetConn.Close(); err != nil {
-			p.logger.Error("closing connection", "error", err)
-		}
-	}()
 
 	// Create a WaitGroup to handle nested goroutines that copy data
 	wg := &sync.WaitGroup{}
@@ -138,6 +133,10 @@ func (p *Proxy) handleConnection(clientConn net.Conn) {
 	go func() {
 		defer wg.Done()
 		p.copyData(targetConn, clientConn)
+
+		// For added safety, close the target connection once data transfer is complete to ensure the other
+		// goroutine can't get stuck.
+		p.closeConnection(targetConn)
 	}()
 
 	// Copy data from target back to the client
@@ -146,16 +145,12 @@ func (p *Proxy) handleConnection(clientConn net.Conn) {
 		defer wg.Done()
 		p.copyData(clientConn, targetConn)
 
-		// For added safety, close the target connection once data transfer is complete to ensure the other
+		// For added safety, close the client connection once data transfer is complete to ensure the other
 		// goroutine can't get stuck.
-		p.closeConnection(targetConn)
+		p.closeConnection(clientConn)
 	}()
 
 	wg.Wait()
-
-	// Close connections once EOF has been met and data transfer is complete
-	p.closeConnection(clientConn)
-	p.closeConnection(targetConn)
 }
 
 func (p *Proxy) copyData(dst net.Conn, src net.Conn) {
@@ -164,7 +159,6 @@ func (p *Proxy) copyData(dst net.Conn, src net.Conn) {
 		if errors.Is(err, os.ErrDeadlineExceeded) {
 			p.logger.Error("deadline exceeded", "error", err)
 		}
-		p.logger.Error("copying data", "error", err)
 	}
 }
 
