@@ -1,6 +1,8 @@
 package tcpproxy
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"log/slog"
 )
@@ -23,11 +25,10 @@ type ListenerConfig struct {
 	// ListenerAddr is passed to tls.Listen, for example, ":5000" to listen on port 5000.
 	ListenerAddr string
 
-	// TLS configuration for the listener to use. The values should be string data with certificates
-	// in PEM format.
-	CA          string
-	Certificate string
-	PrivateKey  string
+	// TLS configuration for the listener to use. The values should be certificates in PEM format.
+	CA          []byte
+	Certificate []byte
+	PrivateKey  []byte
 }
 
 // UpstreamConfig is the configuration for where to route proxied connections.
@@ -57,4 +58,26 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+func (c *Config) TLSConfig() (*tls.Config, error) {
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(c.ListenerConfig.CA)
+
+	cert, err := tls.X509KeyPair(
+		c.ListenerConfig.Certificate,
+		c.ListenerConfig.PrivateKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		RootCAs:            pool,
+		ClientAuth:         tls.RequireAndVerifyClientCert,
+		ClientCAs:          pool,
+		InsecureSkipVerify: false,
+		MinVersion:         tls.VersionTLS13,
+	}, nil
 }
