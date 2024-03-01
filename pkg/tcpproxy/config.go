@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"log/slog"
+	"os"
 )
 
 // Config is the top-level configuration object used to configure a Proxy.
@@ -25,10 +26,10 @@ type ListenerConfig struct {
 	// ListenerAddr is passed to tls.Listen, for example, ":5000" to listen on port 5000.
 	ListenerAddr string
 
-	// TLS configuration for the listener to use. The values should be certificates in PEM format.
-	CA          []byte
-	Certificate []byte
-	PrivateKey  []byte
+	// TLS configuration for the listener to use. The values should be relative paths to certificates in PEM format.
+	CA          string
+	Certificate string
+	PrivateKey  string
 }
 
 // UpstreamConfig is the configuration for where to route proxied connections.
@@ -62,9 +63,13 @@ func (c *Config) Validate() error {
 
 func (c *Config) TLSConfig() (*tls.Config, error) {
 	pool := x509.NewCertPool()
-	pool.AppendCertsFromPEM(c.ListenerConfig.CA)
+	caData, err := os.ReadFile(c.ListenerConfig.CA)
+	if err != nil {
+		return nil, err
+	}
+	pool.AppendCertsFromPEM(caData)
 
-	cert, err := tls.X509KeyPair(
+	cert, err := tls.LoadX509KeyPair(
 		c.ListenerConfig.Certificate,
 		c.ListenerConfig.PrivateKey,
 	)

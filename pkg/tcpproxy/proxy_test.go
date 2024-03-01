@@ -90,9 +90,9 @@ func setupTestProxy(t *testing.T, target string, authorizedGroup string) *Proxy 
 		ListenerConfig: &ListenerConfig{
 			ListenerAddr: "127.0.0.1:0",
 
-			CA:          loadCertificate(t, "ca.pem"),
-			Certificate: loadCertificate(t, "tcp-proxy.pem"),
-			PrivateKey:  loadCertificate(t, "tcp-proxy.key"),
+			CA:          certificatePath("ca.pem"),
+			Certificate: certificatePath("tcp-proxy.pem"),
+			PrivateKey:  certificatePath("tcp-proxy.key"),
 		},
 		UpstreamConfig: &UpstreamConfig{
 			Name:    "test",
@@ -130,11 +130,13 @@ func setupEchoServer(t *testing.T) *echoServer {
 
 func clientTlsConfig(t *testing.T, user string) *tls.Config {
 	pool := x509.NewCertPool()
-	pool.AppendCertsFromPEM(loadCertificate(t, "ca.pem"))
+	caData, err := os.ReadFile(certificatePath("ca.pem"))
+	require.NoError(t, err)
+	pool.AppendCertsFromPEM(caData)
 
-	tlsCert, err := tls.X509KeyPair(
-		loadCertificate(t, fmt.Sprintf("%s.pem", user)),
-		loadCertificate(t, fmt.Sprintf("%s.key", user)),
+	tlsCert, err := tls.LoadX509KeyPair(
+		certificatePath(fmt.Sprintf("%s.pem", user)),
+		certificatePath(fmt.Sprintf("%s.key", user)),
 	)
 	require.NoError(t, err)
 
@@ -146,9 +148,6 @@ func clientTlsConfig(t *testing.T, user string) *tls.Config {
 	return config
 }
 
-func loadCertificate(t *testing.T, name string) []byte {
-	data, err := os.ReadFile(fmt.Sprintf("../../certificates/%s", name))
-	require.NoError(t, err)
-
-	return data
+func certificatePath(name string) string {
+	return fmt.Sprintf("../../certificates/%s", name)
 }
