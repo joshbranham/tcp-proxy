@@ -1,6 +1,7 @@
 package tcpproxy
 
 import (
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -9,15 +10,17 @@ import (
 type RateLimitManager struct {
 	defaultCapacity int
 	defaultFillRate time.Duration
+	logger          *slog.Logger
 	rateLimiters    map[string]*RateLimiter
 	mutex           sync.RWMutex
 }
 
 // NewRateLimitManager returns a configured RateLimitManager.
-func NewRateLimitManager(capacity int, fillRate time.Duration) *RateLimitManager {
+func NewRateLimitManager(capacity int, fillRate time.Duration, logger *slog.Logger) *RateLimitManager {
 	return &RateLimitManager{
 		defaultCapacity: capacity,
 		defaultFillRate: fillRate,
+		logger:          logger,
 		rateLimiters:    make(map[string]*RateLimiter),
 		mutex:           sync.RWMutex{},
 	}
@@ -39,16 +42,16 @@ func (r *RateLimitManager) RateLimiterFor(client string) *RateLimiter {
 	return rateLimiter
 }
 
-// Close calls Close() on all known RateLimiters. Calling this multiple times will error if a RateLimiter
-// has already been closed.
-func (r *RateLimitManager) Close() error {
+// Close calls Close() on all known RateLimiters. RateLimiters can only be closed once, however this
+// func will handle if a RateLimiter is already closed.
+func (r *RateLimitManager) Close() {
 	r.mutex.RLock()
 	for _, rateLimiter := range r.rateLimiters {
-		if err := rateLimiter.Close(); err != nil {
-			return err
+		if rateLimiter != nil {
+			if err := rateLimiter.Close(); err != nil {
+				r.logger.Warn("error closing rate limiter", "error", err)
+			}
 		}
 	}
 	r.mutex.RUnlock()
-
-	return nil
 }
