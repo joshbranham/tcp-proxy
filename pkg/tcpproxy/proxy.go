@@ -120,6 +120,7 @@ func (p *Proxy) handleConnection(clientConn net.Conn) {
 	targetConn, err := net.DialTimeout("tcp", upstream.Address, DialTimeout)
 	if err != nil {
 		p.logger.Error("connecting to target", "error", err)
+		_ = clientConn.Close()
 		return
 	}
 
