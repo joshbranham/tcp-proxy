@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -24,8 +25,7 @@ type Proxy struct {
 	listener  net.Listener
 	shutdownC chan struct{}
 
-	serving bool
-	mutex   sync.Mutex
+	serving atomic.Bool
 }
 
 // New constructs a Proxy for a given Config. It will validate the configuration, and if valid, begin listening
@@ -61,12 +61,10 @@ func New(conf *Config) (*Proxy, error) {
 // Serve blocks and starts receiving connections on our listener, spawning goroutines to handle individual connections.
 func (p *Proxy) Serve() error {
 	// Ensure we cannot call Serve more than once.
-	if p.serving {
+	if p.serving.Load() {
 		return errors.New("cannot Serve as proxy is already serving")
 	}
-	p.mutex.Lock()
-	p.serving = true
-	p.mutex.Unlock()
+	p.serving.Store(true)
 
 	wg := &sync.WaitGroup{}
 	for {
@@ -98,10 +96,9 @@ func (p *Proxy) Close() error {
 	// TODO: This prevents a panic if someone calls Close() twice on a Proxy instance. This is a hack,
 	// in that you could in theory close and re-listen at the call site, however the API exposed here prefers
 	// New() to return a new Proxy that is listening.
-	if !p.serving {
+	if !p.serving.Load() {
 		return errors.New("cannot close a proxy that is not serving")
 	}
-	p.mutex.Lock()
 	close(p.shutdownC)
 
 	err := p.listener.Close()
@@ -109,8 +106,7 @@ func (p *Proxy) Close() error {
 		return err
 	}
 
-	p.serving = false
-	p.mutex.Unlock()
+	p.serving.Store(false)
 
 	return nil
 }
