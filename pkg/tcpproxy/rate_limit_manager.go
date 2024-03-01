@@ -39,6 +39,8 @@ func (r *RateLimitManager) RateLimiterFor(client string) *RateLimiter {
 	return rateLimiter
 }
 
+// Close calls Close() on all known RateLimiters. Calling this multiple times will error if a RateLimiter
+// has already been closed.
 func (r *RateLimitManager) Close() error {
 	r.mutex.RLock()
 	for _, rateLimiter := range r.rateLimiters {

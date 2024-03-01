@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// TokenFillRate is the amount of tokens added to the bucket at the given FillRate.
-const TokenFillRate = 1
+// tokenFillRate is the amount of tokens added to the bucket at the given FillRate.
+const tokenFillRate = 1
 
 // RateLimiter is an instance of rate limiting configuration, used for a single client.
 type RateLimiter struct {
@@ -22,7 +22,7 @@ type RateLimiter struct {
 }
 
 // NewRateLimiter returns a RateLimiter and spawns a goroutine to add tokens up until the capacity.
-// Use Close() to cleanup the goroutine and stock token accumulation.
+// Use Close() to cleanup the goroutine and stop token accumulation.
 func NewRateLimiter(capacity int64, fillRate time.Duration) *RateLimiter {
 	rl := &RateLimiter{
 		capacity: capacity,
@@ -73,7 +73,7 @@ func (r *RateLimiter) fillTokens() {
 		case <-ticker.C:
 			tokens := r.tokens.Load()
 			if tokens != 0 && tokens < r.capacity {
-				r.tokens.Add(TokenFillRate)
+				r.tokens.Add(tokenFillRate)
 			}
 		}
 	}

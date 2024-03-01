@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRateLimiter_ConnectionAllowed(t *testing.T) {
@@ -14,10 +15,11 @@ func TestRateLimiter_ConnectionAllowed(t *testing.T) {
 
 	// Allowed immediately at creation with 1 token
 	assert.Equal(t, true, rl.ConnectionAllowed())
+
 	// This brings capacity to zero, so connection not allowed
 	assert.Equal(t, false, rl.ConnectionAllowed())
 
-	assert.NoError(t, rl.Close())
 	// Ensure we can't double close a RateLimiter
+	require.NoError(t, rl.Close())
 	assert.Error(t, rl.Close())
 }
