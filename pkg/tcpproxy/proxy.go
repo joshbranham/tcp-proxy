@@ -103,7 +103,7 @@ func (p *Proxy) Serve() error {
 				continue
 			}
 
-			// Check if the user is AuthorizedGroups, otherwise close the connection.
+			// Check if the user is in the AuthorizedGroups, otherwise close the connection.
 			if p.connectionAuthorized(tlsConn) {
 				wg.Add(1)
 				go func() {

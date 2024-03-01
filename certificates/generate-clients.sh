@@ -2,8 +2,6 @@
 
 set -ex
 
-# TODO: Do we need a SAN?
-
 # Create a private key and CSR for the proxy, then sign
 openssl genrsa -out tcp-proxy.key 2048
 openssl req -new -key tcp-proxy.key -out tcp-proxy.csr \
