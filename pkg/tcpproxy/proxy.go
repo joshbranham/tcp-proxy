@@ -50,6 +50,7 @@ func New(conf *Config) (*Proxy, error) {
 	tlsConfig, err := conf.TLSConfig()
 	if err != nil {
 		proxy.logger.Error("failure loading TLS configuration", "error", err)
+		return nil, err
 	}
 
 	if proxy.listener, err = tls.Listen("tcp", proxy.listenerConfig.ListenerAddr, tlsConfig); err != nil {
