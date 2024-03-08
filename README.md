@@ -55,8 +55,8 @@ The certificates generated and committed to this repo are also used in tests as 
 
 You can create a new CA key and certificate:
 
-        cd certificates && ./generate-ca.sh
+    cd certificates && ./generate-ca.sh
 
 To then generate certificates for the proxy to use, and 2 client certificates:
 
-        cd certificates && ./generate-clients.sh
+    cd certificates && ./generate-clients.sh
