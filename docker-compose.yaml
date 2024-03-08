@@ -1,0 +1,18 @@
+version: '3'
+
+services:
+  nginx0:
+    image: nginx
+    ports:
+      - "9000:80"
+    restart: always
+  nginx1:
+    image: nginx
+    ports:
+      - "9001:80"
+    restart: always
+  nginx2:
+    image: nginx
+    ports:
+      - "9002:80"
+    restart: always
