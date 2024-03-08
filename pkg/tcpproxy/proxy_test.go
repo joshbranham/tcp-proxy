@@ -96,6 +96,10 @@ func setupTestProxy(t *testing.T, target string) *Proxy {
 			// TODO: Not implemented yet
 			AuthorizedGroups: []string{""},
 		},
+		RateLimitConfig: &RateLimitConfig{
+			Capacity: 10,
+			FillRate: 5 * time.Second,
+		},
 		Logger: slog.Default(),
 	}
 	proxy, err := New(config)

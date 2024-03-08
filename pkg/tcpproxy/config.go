@@ -3,6 +3,7 @@ package tcpproxy
 import (
 	"errors"
 	"log/slog"
+	"time"
 )
 
 // Config is the top-level configuration object used to configure a Proxy.
@@ -13,6 +14,8 @@ type Config struct {
 	ListenerConfig *ListenerConfig
 	// UpstreamConfig comprises where to route requests as well as which clients are authorized to do so.
 	UpstreamConfig *UpstreamConfig
+	// RateLimitConfig defines how rate limiting should be configured for clients.
+	RateLimitConfig *RateLimitConfig
 
 	// Logger is a slog.Logger used for logging proxy activities to stdout.
 	Logger *slog.Logger
@@ -41,6 +44,15 @@ type UpstreamConfig struct {
 	AuthorizedGroups []string
 }
 
+// RateLimitConfig is the configuration for the built-in token bucket rate limiting implementation. These settings
+// are applied on a per-client basis.
+type RateLimitConfig struct {
+	// Capacity is the maximum tokens the bucket can have.
+	Capacity int
+	// FillRate is how often 1 token is added to the bucket
+	FillRate time.Duration
+}
+
 // Validate confirms a given Config has all required fields set.
 func (c *Config) Validate() error {
 	if c.ListenerConfig == nil {
@@ -51,6 +63,9 @@ func (c *Config) Validate() error {
 	}
 	if c.UpstreamConfig == nil {
 		return errors.New("config does not contain a UpstreamConfig")
+	}
+	if c.RateLimitConfig == nil {
+		return errors.New("config does not contain a RateLimitConfig")
 	}
 	if c.Logger == nil {
 		return errors.New("config does not contain a Logger")
