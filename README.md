@@ -2,7 +2,6 @@
 
 An implementation of a L4 TCP proxy written in Golang. Provides the following functionality:
 
-<<<<<<< HEAD
 * mTLS authentication, with an authorization system to define what groups can access the upstreams.
 
 * Builtin least-connection forwarding to available upstreams.
@@ -24,14 +23,6 @@ configured to point to these.
 
     docker-compose up
 
-=======
-* mTLS authentication, with an authorization system to define what groups can access the upstreams
-
-* Builtin least-connection forwarding to available upstreams
-
-* Per-client rate-limiting, using a token bucket implementation.
-
->>>>>>> 3e31fdf190b8495405f048e44d3d39c338312638
 ## Development
 
 In order to build and develop the proxy, you should have Go installed and available.

@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/joshbranham/tcp-proxy/pkg/tcpproxy"
 )
@@ -22,11 +23,9 @@ func main() {
 		LoadBalancer: loadBalancer,
 		ListenerConfig: &tcpproxy.ListenerConfig{
 			ListenerAddr: "localhost:5000",
-
-			// TODO: this is dependent https://github.com/joshbranham/tcp-proxy/pull/3
-			CA:          "certificates/ca.pem",
-			Certificate: "tcp-proxy.pem",
-			PrivateKey:  "tcp-proxy.key",
+			CA:           "certificates/ca.pem",
+			Certificate:  "tcp-proxy.pem",
+			PrivateKey:   "tcp-proxy.key",
 		},
 		UpstreamConfig: &tcpproxy.UpstreamConfig{
 			Name:    "test",
@@ -35,11 +34,10 @@ func main() {
 			AuthorizedGroups: []string{"engineering"},
 		},
 
-		// TODO: this is dependent on https://github.com/joshbranham/tcp-proxy/pull/4
-		//RateLimitConfig: &tcpproxy.RateLimitConfig{
-		//	Capacity: 10,
-		//	FillRate: 5 * time.Second,
-		//},
+		RateLimitConfig: &tcpproxy.RateLimitConfig{
+			Capacity: 10,
+			FillRate: 5 * time.Second,
+		},
 		Logger: slog.Default(),
 	}
 
