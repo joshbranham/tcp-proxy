@@ -2,8 +2,11 @@ package tcpproxy
 
 import (
 	"bufio"
+	"crypto/tls"
+	"crypto/x509"
+	"fmt"
 	"log/slog"
-	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -14,32 +17,18 @@ import (
 // Configure our echoServer to listen on a random available port on localhost
 const echoServerAddr = "localhost:0"
 
-func Test_ProxyForwardsRequests(t *testing.T) {
+func Test_ProxyForwardsRequests_AuthorizedClient(t *testing.T) {
 	// Start our echoServer which will receive proxied requests and echo back.
-	echoSrv := newEchoServer(echoServerAddr)
-	err := echoSrv.listen()
-	require.NoError(t, err)
-
-	// Serve requests in a goroutine
-	go func() {
-		err := echoSrv.serve()
-		require.NoError(t, err)
-	}()
+	echoSrv := setupEchoServer(t)
 
 	// Startup our proxy and begin listening, forwarding requests to our echoServer resolved
-	// address:port.
-	proxy := setupTestProxy(t, echoSrv.listener.Addr().String())
-	require.NoError(t, err)
-	go func() {
-		err := proxy.Serve()
-		require.NoError(t, err)
-	}()
+	// address:port. Allow clients in the group engineering.
+	proxy := setupTestProxy(t, echoSrv.listener.Addr().String(), "engineering")
 
-	// Connect to our proxy instance
-	conn, err := net.Dial("tcp", proxy.Address())
+	// Connect to our proxy instance, using user1
+	conn, err := tls.Dial("tcp", proxy.Address(), clientTlsConfig(t, "user1"))
 	require.NoError(t, err)
 	reader := bufio.NewReader(conn)
-	assert.NoError(t, err)
 
 	// Send some data through our proxy
 	_, err = conn.Write([]byte("hello world\n"))
@@ -53,18 +42,35 @@ func Test_ProxyForwardsRequests(t *testing.T) {
 	assert.NoError(t, echoSrv.close())
 }
 
+func Test_ProxyForwardsRequests_UnauthorizedClient(t *testing.T) {
+	// Start our echoServer which will receive proxied requests and echo back.
+	echoSrv := setupEchoServer(t)
+
+	// Startup our proxy and begin listening, forwarding requests to our echoServer resolved
+	// address:port. Allow clients in the group administrators.
+	proxy := setupTestProxy(t, echoSrv.listener.Addr().String(), "administrators")
+
+	// Connect to our proxy instance, using user1
+	conn, err := tls.Dial("tcp", proxy.Address(), clientTlsConfig(t, "user1"))
+	require.NoError(t, err)
+	reader := bufio.NewReader(conn)
+
+	// Send some data through our proxy
+	_, err = conn.Write([]byte("12345\n"))
+	assert.NoError(t, err)
+
+	// The proxy should have closed the connection, returning an error here.
+	_, err = reader.ReadBytes(byte('\n'))
+	assert.Error(t, err)
+}
+
 func Test_CannotCloseAlreadyClosed(t *testing.T) {
-	proxy := setupTestProxy(t, "localhost:0")
+	proxy := setupTestProxy(t, "localhost:0", "")
 	assert.Error(t, proxy.Close())
 }
 
 func Test_CannotServeIfAlreadyServing(t *testing.T) {
-	proxy := setupTestProxy(t, "localhost:99999")
-
-	go func() {
-		err := proxy.Serve()
-		require.NoError(t, err)
-	}()
+	proxy := setupTestProxy(t, "localhost:99999", "")
 
 	// Give our proxy serving in a goroutine time to begin serving before trying to call Serve() again. We need
 	// the goroutine serving in order to test the double serve behavior erroring.
@@ -74,7 +80,7 @@ func Test_CannotServeIfAlreadyServing(t *testing.T) {
 	assert.NoError(t, proxy.Close())
 }
 
-func setupTestProxy(t *testing.T, target string) *Proxy {
+func setupTestProxy(t *testing.T, target string, authorizedGroup string) *Proxy {
 	targets := []string{target}
 	loadBalancer, err := NewLeastConnectionBalancer(targets)
 	require.NoError(t, err)
@@ -84,21 +90,64 @@ func setupTestProxy(t *testing.T, target string) *Proxy {
 		ListenerConfig: &ListenerConfig{
 			ListenerAddr: "127.0.0.1:0",
 
-			// TODO: Not implemented yet
-			CA:          "",
-			Certificate: "",
-			PrivateKey:  "",
+			CA:          certificatePath("ca.pem"),
+			Certificate: certificatePath("tcp-proxy.pem"),
+			PrivateKey:  certificatePath("tcp-proxy.key"),
 		},
 		UpstreamConfig: &UpstreamConfig{
 			Name:    "test",
 			Targets: targets,
 
-			// TODO: Not implemented yet
-			AuthorizedGroups: []string{""},
+			AuthorizedGroups: []string{authorizedGroup},
 		},
 		Logger: slog.Default(),
 	}
 	proxy, err := New(config)
 	require.NoError(t, err)
+
+	go func() {
+		err := proxy.Serve()
+		require.NoError(t, err)
+	}()
+
 	return proxy
+}
+
+func setupEchoServer(t *testing.T) *echoServer {
+	// Start our echoServer which will receive proxied requests and echo back.
+	echoSrv := newEchoServer(echoServerAddr)
+	err := echoSrv.listen()
+	require.NoError(t, err)
+
+	// Serve requests in a goroutine
+	go func() {
+		err := echoSrv.serve()
+		require.NoError(t, err)
+	}()
+
+	return echoSrv
+}
+
+func clientTlsConfig(t *testing.T, user string) *tls.Config {
+	pool := x509.NewCertPool()
+	caData, err := os.ReadFile(certificatePath("ca.pem"))
+	require.NoError(t, err)
+	pool.AppendCertsFromPEM(caData)
+
+	tlsCert, err := tls.LoadX509KeyPair(
+		certificatePath(fmt.Sprintf("%s.pem", user)),
+		certificatePath(fmt.Sprintf("%s.key", user)),
+	)
+	require.NoError(t, err)
+
+	config := &tls.Config{
+		RootCAs:      pool,
+		Certificates: []tls.Certificate{tlsCert},
+	}
+
+	return config
+}
+
+func certificatePath(name string) string {
+	return fmt.Sprintf("../../certificates/%s", name)
 }

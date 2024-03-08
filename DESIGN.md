@@ -98,10 +98,10 @@ type Configuration struct {
 type ListenerConfig struct {
   ListenerAddr string // eg :5000
 
-  // TLS configuraition for the listener to use.
-  Ca         string
+  // TLS configuration for the listener to use. The values should be relative paths to certificates in PEM format.
+  CA          string
   Certificate string
-  PrivateKey string
+  PrivateKey  string
 }
 
 // Individual configuration for an upstream "group"
