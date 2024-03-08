@@ -24,8 +24,8 @@ func main() {
 		ListenerConfig: &tcpproxy.ListenerConfig{
 			ListenerAddr: "localhost:5000",
 			CA:           "certificates/ca.pem",
-			Certificate:  "tcp-proxy.pem",
-			PrivateKey:   "tcp-proxy.key",
+			Certificate:  "certificates/tcp-proxy.pem",
+			PrivateKey:   "certificates/tcp-proxy.key",
 		},
 		UpstreamConfig: &tcpproxy.UpstreamConfig{
 			Name:    "test",

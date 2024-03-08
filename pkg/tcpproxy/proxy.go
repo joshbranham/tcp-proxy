@@ -19,10 +19,11 @@ const DialTimeout = 5 * time.Second
 
 // Proxy is an instance of the TCP proxy. Use New() with a Config to construct a proper Proxy.
 type Proxy struct {
-	loadBalancer   *LeastConnectionBalancer
-	listenerConfig *ListenerConfig
-	logger         *slog.Logger
-	upstreamConfig *UpstreamConfig
+	loadBalancer     *LeastConnectionBalancer
+	listenerConfig   *ListenerConfig
+	logger           *slog.Logger
+	rateLimitManager *RateLimitManager
+	upstreamConfig   *UpstreamConfig
 
 	listener  net.Listener
 	shutdownC chan struct{}
@@ -43,7 +44,11 @@ func New(conf *Config) (*Proxy, error) {
 		listenerConfig: conf.ListenerConfig,
 		logger:         conf.Logger,
 		upstreamConfig: conf.UpstreamConfig,
-
+		rateLimitManager: NewRateLimitManager(
+			conf.RateLimitConfig.Capacity,
+			conf.RateLimitConfig.FillRate,
+			conf.Logger,
+		),
 		shutdownC: make(chan struct{}),
 	}
 
@@ -102,7 +107,8 @@ func (p *Proxy) Serve() error {
 				continue
 			}
 
-			// Check if the user is in the AuthorizedGroups, otherwise close the connection.
+			// Check if the user is in the AuthorizedGroups and has not exceeded the RateLimit. Otherwise,
+			// close the connection.
 			if p.connectionAuthorized(tlsConn) {
 				wg.Add(1)
 				go func() {
@@ -136,6 +142,8 @@ func (p *Proxy) Close() error {
 	if err != nil {
 		return err
 	}
+
+	p.rateLimitManager.Close()
 
 	p.serving.Store(false)
 
@@ -206,15 +214,22 @@ func (p *Proxy) closeConnection(conn net.Conn) {
 // connectionAuthorized will look for our authorization stored in a certificates CN, in the format "user@group",
 // and extract that to verify the user is a member of the AuthorizedGroups configured.
 func (p *Proxy) connectionAuthorized(conn *tls.Conn) bool {
-	for _, cert := range conn.ConnectionState().PeerCertificates {
-		s := strings.Split(cert.Subject.CommonName, "@")
-		if len(s) != 2 {
-			return false
-		}
-		group := s[1]
-		if slices.Contains(p.upstreamConfig.AuthorizedGroups, group) {
-			return true
-		}
+	// TODO: This may be naive but assume one PeerCertificate for now.
+	cert := conn.ConnectionState().PeerCertificates[0]
+	if cert == nil {
+		return false
+	}
+
+	s := strings.Split(cert.Subject.CommonName, "@")
+	if len(s) != 2 {
+		return false
+	}
+	user := s[0]
+	group := s[1]
+
+	rateLimiter := p.rateLimitManager.RateLimiterFor(user)
+	if slices.Contains(p.upstreamConfig.AuthorizedGroups, group) && rateLimiter.ConnectionAllowed() {
+		return true
 	}
 
 	return false
